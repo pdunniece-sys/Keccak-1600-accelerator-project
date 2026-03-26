@@ -1,0 +1,22 @@
+
+// ^^ above here are the other previous Theta steps, including saving some spilled vars to L1
+
+ 5 parallel state XOR operations 
+state[0] ^= D[0]; state[5] ^= D[0]; state[10] ^= D[0]; state[15] ^= D[0]; state[20] ^= D[0];
+
+XOR 1 
+10000068c: ca04013b    	eor	x27, x9, x4   // CPU has the data. XOR computes in 1 cycle.
+
+XOR 2
+100000690: ca070124    	eor	x4, x9, x7    // "" "" ""
+
+XOR 3
+1000006ec: f9400be1    	ldr	x1, [sp, #0x10]   The CPU runs out of registers and fetches state from the L1 stack.
+1000006f0: ca010121    	eor	x1, x9, x1         tries to XOR, but x1 hasn't arrived from memory yet.
+
+XOR 4
+100000720: ca050136    	eor	x22, x9, x5    CPU has the data. XOR computes in 1 cycle.
+
+XOR 5
+100000734: f9400fe8    	ldr	x8, [sp, #0x18]  The CPU fetches another spilled variable from the stack.
+100000738: ca080125    	eor	x5, x9, x8       stalls again waiting for x8.
