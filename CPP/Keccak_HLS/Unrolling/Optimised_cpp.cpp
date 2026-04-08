@@ -1,10 +1,10 @@
 #include <iostream>
 #include <cstdint>
+#include <array>
 #include <sycl/sycl.hpp>
 #include <sycl/ext/intel/fpga_extensions.hpp>
 
 using namespace sycl;
-
 
 const uint64_t RC[24] = {
     0x0000000000000001, 0x0000000000008082, 0x800000000000808A,
@@ -21,12 +21,18 @@ inline uint64_t rotl64(uint64_t a, int n) {
     return (n == 0) ? a : ((a << n) | (a >> (64 - n)));
 }
 
-// State is 1D array of 25 elements
-void keccak_f1600_optimized(uint64_t state[25]) {
+// Define SYCL pipes for consistency
+using PipeIn = ext::intel::pipe<class KeccakInPipe, std::array<uint64_t, 25>>;
+using PipeOut = ext::intel::pipe<class KeccakOutPipe, std::array<uint64_t, 25>>;
+
+// Changed to accept std::array by reference to match the unrolled version
+void keccak_f1600_optimized(std::array<uint64_t, 25>& state) {
     uint64_t C[5], D[5];
     uint64_t t0, t1, t2, t3, t4;
 
-    #pragma unroll
+    // ------ user defined unrolling here ------
+    // ---  unroll 1 means no unrolling, you can change this to 2, 4, 8 etc to unroll more ---
+    #pragma unroll 1
     for (int i = 0; i < 24; ++i) {
         // THETA 
         C[0] = state[0] ^ state[5] ^ state[10] ^ state[15] ^ state[20];
@@ -75,7 +81,7 @@ void keccak_f1600_optimized(uint64_t state[25]) {
         state[10] = rotl64(t1, 1);
 
         // CHI 
-        #pragma unroll
+        #pragma unroll 1
         for (int y = 0; y < 25; y += 5) {
             t0 = state[y + 0];
             t1 = state[y + 1];
@@ -90,47 +96,63 @@ void keccak_f1600_optimized(uint64_t state[25]) {
             state[y + 4] = t4 ^ ((~t0) & t1);
         }
 
-        //  IOTA 
+        // IOTA 
         state[0] ^= RC[i];
     }
 }
 
 int main() {
     try {
-        // FPGA Device Queue
+        // Updated SYCL 2020 Device Queue Selection
         #if defined(FPGA_EMULATOR)
-            ext::intel::fpga_emulator_selector device_selector;
+            queue q{ext::intel::fpga_emulator_selector_v};
         #else
-            ext::intel::fpga_selector device_selector;
+            queue q{ext::intel::fpga_selector_v};
         #endif
-        queue q(device_selector);
 
         std::cout << "Target Device: " << q.get_device().get_info<info::device::name>() << "\n";
 
         int num_blocks = 50000000;
 
-        
-        uint64_t* state = malloc_shared<uint64_t>(25, q);
-        for(int i = 0; i < 25; i++) {
-            state[i] = 0;
-        }
+        std::cout << "Synthesising Folded Keccak-f[1600] \n";
 
-        std::cout << "Keccak-f[1600] hardware pipeline...\n";
-
-        
+        // KERNEL 1: Data Feeder
         q.submit([&](handler& h) {
-            
-            h.single_task<class KeccakPipeline>([=]() [[intel::kernel_args_restrict]] {
+            h.single_task<class DataFeeder>([=]() {
                 for (int i = 0; i < num_blocks; ++i) {
-                    keccak_f1600_optimized(state);
+                    std::array<uint64_t, 25> input_block; 
+                    #pragma unroll
+                    for(int k = 0; k < 25; ++k) {
+                        input_block[k] = (uint64_t)(i + k) * 0x123456789ABCDEF; 
+                    }
+                    PipeIn::write(input_block);
                 }
             });
-        }).wait();
+        });
 
-        std::cout << "Kernel execution simulated!\n";
-        
-        // Clean up 
-        free(state, q);
+        // KERNEL 2: The Core Pipeline (Folded)
+        q.submit([&](handler& h) {
+            h.single_task<class KeccakPipeline>([=]() [[intel::kernel_args_restrict]] {
+                for (int i = 0; i < num_blocks; ++i) {
+                    std::array<uint64_t, 25> local_state = PipeIn::read();
+                    
+                    keccak_f1600_optimized(local_state);
+                    
+                    PipeOut::write(local_state);
+                }
+            });
+        });
+
+        // KERNEL 3: Data Consumer
+        q.submit([&](handler& h) {
+            h.single_task<class DataConsumer>([=]() {
+                for (int i = 0; i < num_blocks; ++i) {
+                    std::array<uint64_t, 25> output_block = PipeOut::read();
+                }
+            });
+        }).wait(); 
+
+        std::cout << "Kernel execution complete!\n";
 
     } catch (exception const& e) {
         std::cout << "SYCL exception caught: " << e.what() << '\n';

@@ -98,18 +98,17 @@ void keccak_f1600(uint64_t state[5][5]) {
 }
 
 
-// The benchmarking harness
-// Global variable to trick the compiler and prevent Dead Code Elimination
+
 volatile uint64_t global_sink = 0;
 
-// The benchmarking harness
+
 void benchmark_and_save(const std::string& filename) {
     std::ofstream file(filename);
     
-    // Create the CSV headers
+   
     file << "Blocks,Run,Time_ms\n";
 
-    // Logarithmic block scaling + your massive 50M workload
+    // Logarithmic block scaling
     std::vector<int> block_counts = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
     int num_runs = 5;
 
@@ -128,11 +127,10 @@ void benchmark_and_save(const std::string& filename) {
                 keccak_f1600(state);
             }
             
-            // Stop the timer immediately after the loop
+            
             auto end = std::chrono::high_resolution_clock::now();
             
-            // TRICK THE COMPILER: Force it to evaluate the final state
-            // Because this is a volatile global variable, the compiler CANNOT delete the loop above.
+            
             global_sink ^= state[0][0]; 
 
             std::chrono::duration<double, std::milli> duration = end - start;

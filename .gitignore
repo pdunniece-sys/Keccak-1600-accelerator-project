@@ -7,10 +7,12 @@ ENV/
 
 # HLS/Tool Generated Files
 *.prj/
+*.a
 *.qip
 *.tcl
 *.sv
 *.vhd
+reports/
 
 # Python
 __pycache__/
@@ -37,6 +39,7 @@ wheels/
 # Jupyter Notebooks
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
+plot.ipynb
 
 # IDE
 .vscode/

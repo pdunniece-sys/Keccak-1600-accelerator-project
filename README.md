@@ -1,48 +1,63 @@
 # Keccak Hardware Accelerator
 
-This repository contains optimised implementations of the Keccak cryptographic hash function, including both Python and C++ versions with hardware acceleration support.
+This repository contains C++ and SYCL implementations of Keccak-f[1600], along with benchmarking, plotting, and Intel FPGA build scripts.
 
-## Project Structure
+## What Is Here
 
-- **`Keccak_1600_python.py`** — Pure Python implementation of Keccak-1600
-- **`CPP_theta_exectutiontime_vs_code.ipynb`** — Jupyter notebook comparing execution times between θ step implementations
-- **`CPP/`** — C++ implementations and hardware-related files
-  - **`Optimised_Keccak/`** — Optimised Keccak implementations
-    - **`Optimised_HLS/`** — Intel HLS hardware synthesis project
-    - **`Unrolled/`** — Loop-unrolled optimisation variant
-  - **`Graphing/`** — Data visualisation and performance analysis
-    - **`optimised_graphing.cpp`** — C++ graphing utilities
-    - **`Unoptimised_C++/`** — Baseline C++ implementation for comparison
+- `Build_report_2.sh` - runs an Intel oneAPI SYCL build inside Docker and points at the generated report in `*_report.prj/reports/report.html`.
+- `plot.ipynb` - notebook for exploring the accelerator results and generated figures.
+- `requirements.txt` - Python dependencies used by the notebooks and plotting workflow.
+- `CPP/Software_cpp_and_Graphing/Unoptimised_C++.cpp` - baseline CPU benchmark that writes `readable_results.csv`.
+- `CPP/Software_cpp_and_Graphing/optimised_graphing.cpp` - optimized CPU benchmark that writes `optimised_results.csv`.
+- `CPP/Software_cpp_and_Graphing/graphing.ipynb` - notebook that compares the benchmark CSV files and produces `cpp_execution_scaling.png`.
+- `CPP/Keccak_HLS/Pipelining/pipelining.cpp` - SYCL FPGA version that experiments with partial pipelining and register staging.
+- `CPP/Keccak_HLS/Unrolling/Optimised_cpp.cpp` - SYCL FPGA version that folds the Keccak round function into a single kernel flow.
+- `CPP/reports/` - generated Intel HLS project outputs and reports.
 
-## Building & Running
+## Running The Benchmarks
 
-### Python
+The CPU benchmarks are self-contained C++ programs. Compile and run them from `CPP/Software_cpp_and_Graphing/` or from the repository root with your preferred compiler.
+
+Example:
+
 ```bash
-python Keccak_1600_python.py
+g++ -O3 -std=c++17 CPP/Software_cpp_and_Graphing/Unoptimised_C++.cpp -o unoptimised && ./unoptimised
+g++ -O3 -std=c++17 CPP/Software_cpp_and_Graphing/optimised_graphing.cpp -o optimised && ./optimised
 ```
 
-### C++
-Compile with appropriate optimisation flags:
+Each program writes a CSV in the same folder it is run from:
+
+- `readable_results.csv`
+- `optimised_results.csv`
+
+## Plotting Results
+
+Open `CPP/Software_cpp_and_Graphing/graphing.ipynb` after generating the CSV files to compare execution time scaling and regenerate `cpp_execution_scaling.png`.
+
+The top-level `plot.ipynb` notebook contains additional analysis and visualisation work for the accelerator results.
+
+## Building FPGA Reports
+
+`Build_report_2.sh` expects the source file name without the `.cpp` extension. It compiles the target inside the `intel_builder` Docker container using Intel oneAPI SYCL tools.
+
+Example:
+
 ```bash
-g++ -O3 -o keccak CPP/Optimised_Keccak/Optimised_cpp.cpp
+./Build_report_2.sh CPP/Keccak_HLS/Pipelining/pipelining
+./Build_report_2.sh CPP/Keccak_HLS/Unrolling/Optimised_cpp
 ```
 
-### HLS Synthesis
-Navigate to the Intel HLS project in `CPP/Optimised_Keccak/Optimised_HLS/` and use the Intel HLS tools to synthesize.
-
-## Performance Analysis
-
-- See `CPP_theta_exectutiontime_vs_code.ipynb` for execution time comparisons
-- Results and visualisations in `CPP/Graphing/`
+After the build finishes, check the generated report in the corresponding `*_report.prj/reports/report.html` directory.
 
 ## Dependencies
 
-- Python 3.x
-- Intel/Altera HLS tools (for hardware synthesis)
-- C++11 or later
-- Jupyter (for notebooks)
+- Python 3
+- Jupyter
+- `numpy`
+- A C++17-capable compiler for the CPU benchmarks
+- Docker and Intel oneAPI SYCL / FPGA tooling for the HLS build script
 
 ## Notes
 
-- Virtual environment: `.accellerators_venv/`
-- Profiling data: `profile_data.prof`
+- The `.accellerators_venv/` folder is the local Python virtual environment.
+- The contents under `CPP/reports/` are generated build artifacts and are safe to regenerate.

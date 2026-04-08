@@ -1,11 +1,11 @@
 #include <iostream>
 #include <cstdint>
-#include <sycl/sycl.hpp>
-#include <sycl/ext/intel/fpga_extensions.hpp>
+#include <chrono>
+#include <fstream>
+#include <vector>
+#include <string>
 
-using namespace sycl;
-
-
+// Round constants
 const uint64_t RC[24] = {
     0x0000000000000001, 0x0000000000008082, 0x800000000000808A,
     0x8000000080008000, 0x000000000000808B, 0x0000000080000001,
@@ -21,14 +21,13 @@ inline uint64_t rotl64(uint64_t a, int n) {
     return (n == 0) ? a : ((a << n) | (a >> (64 - n)));
 }
 
-// State is 1D array of 25 elements
+// State is now a flat 1D array of 25 elements
 void keccak_f1600_optimized(uint64_t state[25]) {
     uint64_t C[5], D[5];
     uint64_t t0, t1, t2, t3, t4;
 
-    
     for (int i = 0; i < 24; ++i) {
-        // THETA 
+        // --- THETA (Unrolled and flattened) ---
         C[0] = state[0] ^ state[5] ^ state[10] ^ state[15] ^ state[20];
         C[1] = state[1] ^ state[6] ^ state[11] ^ state[16] ^ state[21];
         C[2] = state[2] ^ state[7] ^ state[12] ^ state[17] ^ state[22];
@@ -47,7 +46,7 @@ void keccak_f1600_optimized(uint64_t state[25]) {
         state[3] ^= D[3]; state[8] ^= D[3]; state[13] ^= D[3]; state[18] ^= D[3]; state[23] ^= D[3];
         state[4] ^= D[4]; state[9] ^= D[4]; state[14] ^= D[4]; state[19] ^= D[4]; state[24] ^= D[4];
 
-        // RHO & PI 
+        // --- RHO & PI (Combined and flattened) ---
         t1 = state[1];
         state[1]  = rotl64(state[6], 44);
         state[6]  = rotl64(state[9], 20);
@@ -74,8 +73,7 @@ void keccak_f1600_optimized(uint64_t state[25]) {
         state[7]  = rotl64(state[10], 3);
         state[10] = rotl64(t1, 1);
 
-        // CHI 
-        #pragma unroll
+        // --- CHI (Unrolled to avoid full array copy and modulo) ---
         for (int y = 0; y < 25; y += 5) {
             t0 = state[y + 0];
             t1 = state[y + 1];
@@ -90,52 +88,60 @@ void keccak_f1600_optimized(uint64_t state[25]) {
             state[y + 4] = t4 ^ ((~t0) & t1);
         }
 
-        //  IOTA 
+        // --- IOTA ---
         state[0] ^= RC[i];
     }
 }
 
-int main() {
-    try {
-        // FPGA Device Queue
-        #if defined(FPGA_EMULATOR)
-            ext::intel::fpga_emulator_selector device_selector;
-        #else
-            ext::intel::fpga_selector device_selector;
-        #endif
-        queue q(device_selector);
+// Global variable to trick the compiler and prevent Dead Code Elimination
+volatile uint64_t global_sink = 0;
 
-        std::cout << "Target Device: " << q.get_device().get_info<info::device::name>() << "\n";
+// The benchmarking harness
+void benchmark_and_save(const std::string& filename) {
+    std::ofstream file(filename);
+    
+    // Create the CSV headers
+    file << "Blocks,Run,Time_ms\n";
 
-        int num_blocks = 50000000;
+    // Logarithmic block scaling
+    std::vector<int> block_counts = {1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000};
+    int num_runs = 5;
 
+    std::cout << "Starting benchmark. Saving to " << filename << "...\n";
+
+    for (int blocks : block_counts) {
+        std::cout << "Testing " << blocks << " blocks...\n";
         
-        uint64_t* state = malloc_shared<uint64_t>(25, q);
-        for(int i = 0; i < 25; i++) {
-            state[i] = 0;
-        }
-
-        std::cout << "Keccak-f[1600] hardware pipeline...\n";
-
-        
-        q.submit([&](handler& h) {
+        for (int run = 1; run <= num_runs; ++run) {
+            // Note: Updated to 1D array to match the optimized signature
+            uint64_t state[25] = {0}; 
             
-            h.single_task<class KeccakPipeline>([=]() [[intel::kernel_args_restrict]] {
-                for (int i = 0; i < num_blocks; ++i) {
-                    keccak_f1600_optimized(state);
-                }
-            });
-        }).wait();
+            // Start the high-resolution timer
+            auto start = std::chrono::high_resolution_clock::now();
+            
+            for (int i = 0; i < blocks; ++i) {
+                keccak_f1600_optimized(state);
+            }
+            
+            // Stop the timer immediately after the loop
+            auto end = std::chrono::high_resolution_clock::now();
+            
+            // TRICK THE COMPILER: Force it to evaluate the final state
+            global_sink ^= state[0]; 
 
-        std::cout << "Kernel execution simulated!\n";
-        
-        // Clean up 
-        free(state, q);
-
-    } catch (exception const& e) {
-        std::cout << "SYCL exception caught: " << e.what() << '\n';
-        return 1;
+            std::chrono::duration<double, std::milli> duration = end - start;
+            
+            // Save the raw data point to the CSV
+            file << blocks << "," << run << "," << duration.count() << "\n";
+        }
     }
+    
+    file.close();
+    std::cout << "Benchmarking complete!\n";
+}
 
+int main() {
+    // Run this for the optimized script and output to the new CSV
+    benchmark_and_save("optimised_results.csv");
     return 0;
 }
