@@ -35,7 +35,7 @@ int main() {
         std::cout << "Target Device: " << q.get_device().get_info<info::device::name>() << "\n";
 
         int num_blocks = 5000000; 
-        std::cout << "Synthesizing Partial Pipeline (6-Stage Sequential)...\n";
+        std::cout << "Synthesising Partial Pipeline\n";
 
         // KERNEL 1: Data Feeder
         q.submit([&](handler& h) {
@@ -44,6 +44,9 @@ int main() {
                     std::array<uint64_t, 25> input_block; 
                     #pragma unroll
                     for(int k = 0; k < 25; ++k) {
+                        // using the hex constant to show compiler therre is data present, 
+                        // not only just that there is data but that it is differennt
+                        // this stops the compiler optimising away the whole loop
                         input_block[k] = (uint64_t)(i + k) * 0x123456789ABCDEF; 
                     }
                     PipeIn::write(input_block);
@@ -55,7 +58,7 @@ int main() {
         q.submit([&](handler& h) {
             h.single_task<class KeccakPipeline>([=]() [[intel::kernel_args_restrict]] {
                 
-                // State OUTSIDE the loop -> Sequential feedback
+                // State OUTSIDE the loop -> Sequential feedback SHA-3 Sponge structure
                 std::array<uint64_t, 25> state = {0}; 
                 
                 // Initiation Interval forced.
@@ -135,10 +138,9 @@ int main() {
                         // IOTA
                         state[0] ^= RC[r];
                         
-                        // ========================================================
-                        // PARTIAL PIPELINE REGISTERS
-                        // ========================================================
-                        // to add a register stage every other round
+                        // ---  User defined pipelining --- 
+                        // eg to add a single register would be, if r == 11, then add a register stage after round 11 
+                        // eg to add a register stage every other round
                         if ((r * 10) / 24 != ((r - 1) * 10) / 24 || r == 0) { //
                             #pragma unroll
                             for (int k = 0; k < 25; ++k) {

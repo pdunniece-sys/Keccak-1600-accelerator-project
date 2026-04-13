@@ -123,6 +123,9 @@ int main() {
                     std::array<uint64_t, 25> input_block; 
                     #pragma unroll
                     for(int k = 0; k < 25; ++k) {
+                        // using the hex constant to show compiler therre is data present, 
+                        // not only just that there is data but that it is differennt
+                        // this stops the compiler optimising away the whole loop
                         input_block[k] = (uint64_t)(i + k) * 0x123456789ABCDEF; 
                     }
                     PipeIn::write(input_block);
